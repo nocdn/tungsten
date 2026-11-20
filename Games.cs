@@ -103,7 +103,10 @@ public static class GameResolver
                 if (!IsGenericDir(dir)) r.MatchDir = dir;
             }
 
-            r.Icon = ShellIcon.Get(path, 256) ?? (r.ExePath != null ? ShellIcon.Get(r.ExePath, 256) : null);
+            // Steam's desktop shortcuts point at a .ico: read its largest layer directly (the shell would
+            // pad a 48px icon into a 256px canvas).
+            r.Icon = (ext == ".url" ? IconTools.LoadIco(ReadIni(path, "IconFile")) : null)
+                     ?? ShellIcon.Get(path, 256) ?? (r.ExePath != null ? ShellIcon.Get(r.ExePath, 256) : null);
             // Launcher scripts (.bat etc.) have a generic icon: borrow the main game exe's icon instead.
             if (r.SteamAppId == 0 && r.MatchDir != null && (r.ExePath == null || r.Icon == null) && MainExe(r.MatchDir) is string main)
                 r.Icon = ShellIcon.Get(main, 256) ?? r.Icon;
@@ -136,6 +139,17 @@ public static class GameResolver
         foreach (var f in new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.Desktop, Environment.SpecialFolder.UserProfile })
             if (string.Equals(Environment.GetFolderPath(f).TrimEnd('\\'), dir, StringComparison.OrdinalIgnoreCase)) return true;
         return false;
+    }
+
+    static string? ReadIni(string file, string key)
+    {
+        try
+        {
+            foreach (var line in File.ReadLines(file))
+                if (line.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase)) return line[(key.Length + 1)..].Trim();
+        }
+        catch { }
+        return null;
     }
 
     static string? ReadUrl(string file)
@@ -378,4 +392,76 @@ public static class ColorTools
 
     public static Color Scale(Color c, double f) =>
         Color.FromRgb((byte)Math.Clamp(c.R * f, 0, 255), (byte)Math.Clamp(c.G * f, 0, 255), (byte)Math.Clamp(c.B * f, 0, 255));
+}
+
+/// <summary>Prepares shortcut icons for the tiles: trims transparent padding and tells whether the
+/// icon is a solid square (like Apex's red tile) that can fill the whole tile.</summary>
+public static class IconTools
+{
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BitmapSource, Tuple<BitmapSource, bool>> Cache = new();
+
+    /// <summary>Largest layer of a .ico file.</summary>
+    public static BitmapSource? LoadIco(string? file)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(file) || !file.EndsWith(".ico", StringComparison.OrdinalIgnoreCase) || !File.Exists(file)) return null;
+            using var fs = File.OpenRead(file);
+            var dec = BitmapDecoder.Create(fs, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            BitmapSource best = dec.Frames.OrderByDescending(f => f.PixelWidth).ThenByDescending(f => f.Format.BitsPerPixel).First();
+            var conv = new FormatConvertedBitmap(best, PixelFormats.Pbgra32, null, 0);
+            conv.Freeze();
+            return conv;
+        }
+        catch (Exception e) { Program.Log($"ico {file}: {e.Message}"); return null; }
+    }
+
+    public static (BitmapSource icon, bool fullBleed) Prepare(BitmapSource src)
+    {
+        if (Cache.TryGetValue(src, out var hit)) return (hit.Item1, hit.Item2);
+        var r = Compute(src);
+        Cache.AddOrUpdate(src, Tuple.Create(r.Item1, r.Item2));
+        return r;
+    }
+
+    static (BitmapSource, bool) Compute(BitmapSource src)
+    {
+        try
+        {
+            var bmp = src.Format == PixelFormats.Pbgra32 || src.Format == PixelFormats.Bgra32 ? src : new FormatConvertedBitmap(src, PixelFormats.Pbgra32, null, 0);
+            int w = bmp.PixelWidth, h = bmp.PixelHeight, stride = w * 4;
+            var px = new byte[stride * h];
+            bmp.CopyPixels(px, stride, 0);
+            bool opaqueFormat = src.Format == PixelFormats.Bgr32;
+            byte A(int x, int y) => opaqueFormat ? (byte)255 : px[y * stride + x * 4 + 3];
+
+            int minX = w, minY = h, maxX = -1, maxY = -1;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                    if (A(x, y) > 16) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+            if (maxX < 0) return (src, false);
+            int cw = maxX - minX + 1, ch = maxY - minY + 1;
+            BitmapSource cropped = new CroppedBitmap(bmp, new Int32Rect(minX, minY, cw, ch));
+            cropped.Freeze();
+
+            // Solid square: nearly square and opaque along the middle of every edge (corners may be rounded).
+            bool square = Math.Abs(cw - ch) <= Math.Max(cw, ch) * 0.06;
+            int solid = 0, total = 0, inset = Math.Max(1, cw / 64);
+            for (int i = cw / 5; i < cw * 4 / 5; i++)
+            {
+                total += 2;
+                if (A(minX + i, minY + inset) > 200) solid++;
+                if (A(minX + i, maxY - inset) > 200) solid++;
+            }
+            for (int i = ch / 5; i < ch * 4 / 5; i++)
+            {
+                total += 2;
+                if (A(minX + inset, minY + i) > 200) solid++;
+                if (A(maxX - inset, minY + i) > 200) solid++;
+            }
+            bool full = square && total > 0 && solid >= total * 0.9;
+            return (cropped, full);
+        }
+        catch { return (src, false); }
+    }
 }

@@ -23,6 +23,8 @@ public sealed class AppConfig
     public List<GameEntry> Games { get; set; } = new();
     public bool StartWithWindows { get; set; } = true;
     public bool BlockGameBar { get; set; } = true;
+    /// <summary>Keyboard shortcut that opens the panel, e.g. "Win+Escape", "Ctrl+Shift+Space", "Alt+F1".</summary>
+    public string Hotkey { get; set; } = "Win+Escape";
 }
 
 public static class ConfigStore

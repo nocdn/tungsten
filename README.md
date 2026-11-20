@@ -15,10 +15,20 @@ games that run as administrator.
 - **Options per game.** Press **Menu** on a game to resume, minimize, play, reorder, show the file, unpin,
   close or force quit it.
 - **Minimize game.** Minimizes whatever you're playing into its tile. Select the tile to jump back in.
+- **Blackout.** The button between Minimize and Settings covers every monitor in opaque black and
+  hides the cursor. Press **Y** anywhere in the open bar to activate it, or select the button.
+  Press **Xbox/Home or Y** to end it. Ordinary keys, mouse clicks, and Alt+F4 do not dismiss it.
+  Ctrl+Alt+Delete / a secure-desktop switch, Task Manager, closing the bar process, and the hard
+  eight-hour limit clear it for recovery. It is never saved or restored at startup. A separate,
+  temporary helper owns the windows and checks recovery conditions even if the bar UI hangs.
 - **Bluetooth.** A live-scanning device list. Connect, disconnect, pair and forget devices, and toggle
   the radio.
 - **Wi-Fi.** Scans for networks and connects to them, with an on-screen controller keyboard for
   passwords.
+- **Volume.** Between Bluetooth and Wi-Fi: choose a connected playback device, adjust its volume,
+  and mute it. With the volume row selected, left/right changes volume in 5% steps; the slider
+  also works with a mouse. The list updates while open. Selection changes Windows' default output
+  for playback and communications; apps set to a specific device may need their own output changed.
 - **Settings.** Close or force quit the current game, start with Windows, admin mode, a controller
   test screen, and quit.
 
@@ -26,12 +36,18 @@ games that run as administrator.
 
 | Button | Action |
 | --- | --- |
-| Home / Xbox | Open or close Tungsten |
+| Home / Xbox, or **Win+Esc** on the keyboard | Open or close Tungsten |
 | D-pad / left stick | Move |
 | LB / RB | Jump between the left actions, the games and the right actions |
 | A | Select |
+| Y (bar open) | Black out all monitors |
+| Home / Xbox or Y (blackout active) | End blackout |
 | B | Back / close |
 | Menu, X or Down | Options for the selected tile |
+
+The keyboard works too: arrow keys move, Enter/Space selects, Esc/Backspace goes back, the context-menu
+key or M opens options, and Page Up/Page Down jump between groups. The shortcut can be changed with
+`"Hotkey"` in `%APPDATA%\Tungsten\config.json` (e.g. `"Ctrl+Shift+Space"`, `"Alt+F1"`).
 
 ## Admin mode
 

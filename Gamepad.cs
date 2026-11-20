@@ -35,6 +35,7 @@ public sealed class Gamepad : IDisposable
 
     /// <summary>When false only the Guide button is dispatched (overlay hidden, game has the pad).</summary>
     public volatile bool Navigation;
+    public volatile bool Blackout;
     public event Action<PadButton>? Pressed;
 
     public readonly XState[] Latest = new XState[4];
@@ -155,7 +156,7 @@ public sealed class Gamepad : IDisposable
 
     void Fire(PadButton b)
     {
-        if (!Navigation && b != PadButton.Guide) return;
+        if (!Navigation && b != PadButton.Guide && !(Blackout && b == PadButton.Y)) return;
         _ui.BeginInvoke(new Action(() =>
         {
             try { Pressed?.Invoke(b); }

@@ -34,6 +34,7 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--blackout-session") return BlackoutSession.Run(args.Skip(1).ToArray());
         if (args.Contains("--diag")) { Diag.Run(); return 0; }
         int mk = Array.IndexOf(args, "--make-ico");
         if (mk >= 0 && mk + 1 < args.Length)
@@ -169,12 +170,21 @@ public sealed class Hub
     public Overlay Overlay = null!;
     public readonly BluetoothService Bt = new();
     public readonly WifiService Wifi = new();
+    public readonly AudioService Audio = new();
+    public readonly BlackoutService Blackout;
     System.Windows.Forms.NotifyIcon? _tray;
     System.Windows.Forms.ToolStripMenuItem? _startItem;
     DispatcherTimer? _guard;
+    Hotkey? _hotkey;
     TestWindow? _test;
+    int _blackoutRequest;
 
-    public Hub(Application app) { _app = app; }
+    public Hub(Application app)
+    {
+        _app = app;
+        Blackout = new BlackoutService(app.Dispatcher);
+        Blackout.Ended += () => Pad.Blackout = false;
+    }
 
     public void Start(bool show)
     {
@@ -192,6 +202,9 @@ public sealed class Hub
         _guard.Tick += (_, _) => { if (Config.BlockGameBar) GameBarGuard.Enforce(); };
         _guard.Start();
 
+        _hotkey = new Hotkey(ToggleOverlay);
+        _hotkey.Register(Config.Hotkey, "Win+Escape", "Ctrl+Shift+Space");
+
         CreateTray();
         Log($"Started {Environment.ProcessPath} elevated={Elevation.IsElevated}");
         if (show) Overlay.Open();
@@ -201,8 +214,25 @@ public sealed class Hub
 
     public void ToggleOverlay()
     {
+        if (Blackout.IsActive) return; // Only the controller's Xbox/Y buttons end a blackout normally.
         if (Overlay.IsOpen) Overlay.Dismiss(true); else Overlay.Open();
     }
+
+    public async void StartBlackout()
+    {
+        if (Blackout.IsActive) return;
+        int request = ++_blackoutRequest;
+        Pad.Blackout = true;
+        Overlay.Dismiss(false);
+        if (!await Blackout.Start() && request == _blackoutRequest)
+        {
+            Pad.Blackout = false;
+            Overlay.Open();
+            Overlay.ShowToast("Blackout couldn't start. Close Task Manager if it is open.");
+        }
+    }
+
+    public void StopBlackout() { _blackoutRequest++; Blackout.Stop(); }
 
     public bool TestActive => _test != null && _test.IsActive;
 
@@ -244,7 +274,8 @@ public sealed class Hub
 
     public void Quit()
     {
-        try { Pad?.Dispose(); Bt.Stop(); Wifi.Stop(); } catch { }
+        Blackout.Stop();
+        try { Pad?.Dispose(); _hotkey?.Dispose(); Bt.Stop(); Wifi.Stop(); Audio.Stop(); } catch { }
         if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
         _app.Shutdown();
     }
@@ -266,7 +297,7 @@ public sealed class Hub
         _tray = new System.Windows.Forms.NotifyIcon
         {
             Icon = AppIcon.Create(),
-            Text = "Tungsten - press Home on your controller",
+            Text = "Tungsten - press Home on your controller" + (_hotkey?.Active is { Length: > 0 } k ? $" or {k}" : ""),
             ContextMenuStrip = menu,
             Visible = true,
         };
@@ -374,7 +405,16 @@ static class Diag
             foreach (var g in ConfigStore.Load().Games)
             {
                 var r = GameResolver.Resolve(g);
-                sb.AppendLine($"  {g.Name}: exe={r.ExePath} dir={r.MatchDir} steam={r.SteamAppId} icon={r.Icon?.PixelWidth} art={r.Art?.PixelWidth} accent={r.Accent}");
+                var prep = r.Icon != null ? IconTools.Prepare(r.Icon) : default;
+                sb.AppendLine($"  {g.Name}: exe={r.ExePath} dir={r.MatchDir} steam={r.SteamAppId} icon={r.Icon?.PixelWidth} trimmed={prep.icon?.PixelWidth}x{prep.icon?.PixelHeight} fillsTile={prep.fullBleed} accent={r.Accent}");
+                if (prep.icon != null)
+                {
+                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(prep.icon));
+                    Directory.CreateDirectory(Path.Combine(Program.DataDir, "icons"));
+                    using var fs = File.Create(Path.Combine(Program.DataDir, "icons", g.Id + ".png"));
+                    enc.Save(fs);
+                }
             }
         });
         Directory.CreateDirectory(Program.DataDir);
